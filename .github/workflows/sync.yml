@@ -1,0 +1,108 @@
+name: Automated NFL Schedule & Results Sync
+
+name: Automated NFL Schedule & Results Sync
+
+on:
+  schedule:
+    # 🏈 THURSDAY NIGHT FOOTBALL: Run at 11:00 PM, Midnight, and 1:00 AM EST 
+    # (Translates to 3:00, 4:00, and 5:00 AM UTC Friday)
+    - cron: '0 3,4,5 * * 5'
+
+    # 🏈 SUNDAY SLATE: Run every 2 hours from 4:00 PM EST Sunday to 1:00 AM EST Monday
+    # (Translates to 20:00, 22:00 UTC Sun, and 00:00, 02:00, 04:00, 05:00 UTC Mon)
+    - cron: '0 20,22 * * 0'
+    - cron: '0 0,2,4,5 * * 1'
+
+    # 🏈 MONDAY NIGHT FOOTBALL: Run at 11:00 PM, Midnight, and 1:00 AM EST
+    # (Translates to 3:00, 4:00, and 5:00 AM UTC Tuesday)
+    - cron: '0 3,4,5 * * 2'
+    
+    # 📅 TUESDAY TIER: Run at exactly 5:00 AM EST (9:00 AM UTC) to flip to the new week form
+    - cron: '0 9 * * 2'
+
+  workflow_dispatch: # Keeps the manual "Run workflow" button active
+
+
+jobs:
+  sync-data:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out repository code
+        uses: actions/checkout@v4
+
+      - name: Set up Python environment
+        uses: actions/setup-python@v5
+        with:
+          python-python: '3.10'
+
+      - name: Install dependencies
+        run: pip install supabase requests
+
+      - name: Run the Sync Script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: |
+          python - c "
+          import os
+          import requests
+          from supabase import create_client
+
+          # Connect to database using GitHub Secrets
+          supabase = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_KEY'])
+
+          print('🔄 Fetching live data from ESPN...')
+          # Fetch the current active NFL week from ESPN's primary index
+          index_url = 'https://espn.com'
+          response = requests.get(index_url).json()
+          
+          week_number = response.get('week', {}).get('number', 1)
+          events = response.get('events', [])
+          print(f'🏈 Processing Week {week_number}. Found {len(events)} matchups.')
+
+          for event in events:
+              game_id = event['id']
+              competition = event['competitions'][0]
+              game_time = competition['date']
+              
+              status_name = event['status']['type']['name']
+              status = 'SCHEDULED'
+              if 'STATUS_IN_PROGRESS' in status_name:
+                  status = 'LIVE'
+              elif 'STATUS_FINAL' in status_name:
+                  status = 'FINAL'
+                  
+              teams = competition['competitors']
+              home_node = next(t for t in teams if t['homeAway'] == 'home')
+              away_node = next(t for t in teams if t['homeAway'] == 'away')
+              
+              home_team = home_node['team']['abbreviation']
+              home_logo = home_node['team'].get('logo')
+              away_team = away_node['team']['abbreviation']
+              away_logo = away_node['team'].get('logo')
+              
+              winner = None
+              if status == 'FINAL':
+                  if home_node.get('winner') is True:
+                      winner = 'HOME'
+                  elif away_node.get('winner') is True:
+                      winner = 'AWAY'
+                  else:
+                      winner = 'TIE'
+
+              matchup_data = {
+                  'id': game_id,
+                  'week_number': week_number,
+                  'home_team': home_team,
+                  'away_team': away_team,
+                  'home_logo': home_logo,
+                  'away_logo': away_logo,
+                  'game_time': game_time,
+                  'status': status,
+                  'winner': winner
+              }
+              
+              supabase.table('matchups').upsert(matchup_data).execute()
+              
+          print('✅ Database syncing updates completed successfully!')
+          "
