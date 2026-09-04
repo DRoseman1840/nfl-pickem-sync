@@ -31,61 +31,74 @@ jobs:
           import requests
           from supabase import create_client
 
-          supabase = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_KEY'])
+          try:
+              supabase = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_KEY'])
+          except Exception as conn_err:
+              print(f"❌ Supabase Connection Init Failed: {conn_err}")
+              exit(1)
 
           print('🔄 Fetching live data from ESPN...')
-          index_url = 'https://espn.com'
-          response = requests.get(index_url).json()
+          try:
+              index_url = 'https://espn.com'
+              response = requests.get(index_url).json()
+          except Exception as api_err:
+              print(f"❌ Failed to reach ESPN Endpoint: {api_err}")
+              exit(1)
           
           week_number = response.get('week', {}).get('number', 1)
           events = response.get('events', [])
           print(f'🏈 Processing Week {week_number}. Found {len(events)} matchups.')
 
           for event in events:
-              game_id = event['id']
-              competition = event['competitions'][0]
-              game_time = competition['date']
-              
-              status_name = event['status']['type']['name']
-              status = 'SCHEDULED'
-              if 'STATUS_IN_PROGRESS' in status_name:
-                  status = 'LIVE'
-              elif 'STATUS_FINAL' in status_name:
-                  status = 'FINAL'
+              try:
+                  game_id = event['id']
+                  competition = event['competitions'][0] # Target primary matchup index safely
+                  game_time = competition['date']
                   
-              teams = competition['competitors']
-              home_node = next(t for t in teams if t['homeAway'] == 'home')
-              away_node = next(t for t in teams if t['homeAway'] == 'away')
-              
-              home_team = home_node['team']['abbreviation']
-              home_logo = home_node['team'].get('logo')
-              
-              away_team = away_node['team']['abbreviation']
-              away_logo = away_node['team'].get('logo')
-              
-              winner = None
-              if status == 'FINAL':
-                  if home_node.get('winner') is True:
-                      winner = 'HOME'
-                  elif away_node.get('winner') is True:
-                      winner = 'AWAY'
-                  else:
-                      winner = 'TIE'
+                  status_name = event['status']['type']['name']
+                  status = 'SCHEDULED'
+                  if 'STATUS_IN_PROGRESS' in status_name:
+                      status = 'LIVE'
+                  elif 'STATUS_FINAL' in status_name:
+                      status = 'FINAL'
+                      
+                  teams = competition['competitors']
+                  home_node = next(t for t in teams if t['homeAway'] == 'home')
+                  away_node = next(t for t in teams if t['homeAway'] == 'away')
+                  
+                  home_team = home_node['team']['abbreviation']
+                  home_logo = home_node['team'].get('logo', '')
+                  
+                  away_team = away_node['team']['abbreviation']
+                  away_logo = away_node['team'].get('logo', '')
+                  
+                  winner = None
+                  if status == 'FINAL':
+                      if home_node.get('winner') is True:
+                          winner = 'HOME'
+                      elif away_node.get('winner') is True:
+                          winner = 'AWAY'
+                      else:
+                          winner = 'TIE'
 
-              matchup_data = {
-                  'id': game_id,
-                  'week_number': week_number,
-                  'home_team': home_team,
-                  'away_team': away_team,
-                  'home_logo': home_logo,
-                  'away_logo': away_logo,
-                  'game_time': game_time,
-                  'status': status,
-                  'winner': winner
-              }
-              
-              supabase.table('matchups').upsert(matchup_data).execute()
-              
+                  matchup_data = {
+                      'id': game_id,
+                      'week_number': int(week_number),
+                      'home_team': home_team,
+                      'away_team': away_team,
+                      'home_logo': home_logo,
+                      'away_logo': away_logo,
+                      'game_time': game_time,
+                      'status': status,
+                      'winner': winner
+                  }
+                  
+                  supabase.table('matchups').upsert(matchup_data).execute()
+                  print(f"✅ Synced: {away_team} @ {home_team}")
+              except Exception as match_err:
+                  print(f"⚠️ Skipping individual match object due to error: {match_err}")
+                  continue
+                  
           print('✅ Database syncing updates completed successfully!')
           EOF
 
