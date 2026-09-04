@@ -1,27 +1,13 @@
 name: Automated NFL Schedule & Results Sync
 
-name: Automated NFL Schedule & Results Sync
-
 on:
   schedule:
-    # 🏈 THURSDAY NIGHT FOOTBALL: Run at 11:00 PM, Midnight, and 1:00 AM EST 
-    # (Translates to 3:00, 4:00, and 5:00 AM UTC Friday)
     - cron: '0 3,4,5 * * 5'
-
-    # 🏈 SUNDAY SLATE: Run every 2 hours from 4:00 PM EST Sunday to 1:00 AM EST Monday
-    # (Translates to 20:00, 22:00 UTC Sun, and 00:00, 02:00, 04:00, 05:00 UTC Mon)
     - cron: '0 20,22 * * 0'
     - cron: '0 0,2,4,5 * * 1'
-
-    # 🏈 MONDAY NIGHT FOOTBALL: Run at 11:00 PM, Midnight, and 1:00 AM EST
-    # (Translates to 3:00, 4:00, and 5:00 AM UTC Tuesday)
     - cron: '0 3,4,5 * * 2'
-    
-    # 📅 TUESDAY TIER: Run at exactly 5:00 AM EST (9:00 AM UTC) to flip to the new week form
     - cron: '0 9 * * 2'
-
-  workflow_dispatch: # Keeps the manual "Run workflow" button active
-
+  workflow_dispatch: 
 
 jobs:
   sync-data:
@@ -33,26 +19,21 @@ jobs:
       - name: Set up Python environment
         uses: actions/setup-python@v5
         with:
-          python-python: '3.10'
+          python-version: '3.10'
 
       - name: Install dependencies
         run: pip install supabase requests
 
-      - name: Run the Sync Script
-        env:
-          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
-          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+      - name: Create script file
         run: |
-          python - c "
+          cat << 'EOF' > run_sync.py
           import os
           import requests
           from supabase import create_client
 
-          # Connect to database using GitHub Secrets
           supabase = create_client(os.environ['SUPABASE_URL'], os.environ['SUPABASE_KEY'])
 
           print('🔄 Fetching live data from ESPN...')
-          # Fetch the current active NFL week from ESPN's primary index
           index_url = 'https://espn.com'
           response = requests.get(index_url).json()
           
@@ -105,4 +86,10 @@ jobs:
               supabase.table('matchups').upsert(matchup_data).execute()
               
           print('✅ Database syncing updates completed successfully!')
-          "
+          EOF
+
+      - name: Run the Sync Script
+        env:
+          SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
+          SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
+        run: python run_sync.py
