@@ -59,6 +59,7 @@ jobs:
               
               home_team = home_node['team']['abbreviation']
               home_logo = home_node['team'].get('logo')
+              
               away_team = away_node['team']['abbreviation']
               away_logo = away_node['team'].get('logo')
               
@@ -90,6 +91,7 @@ jobs:
 
       - name: Run the Sync Script
         env:
+          ACTIONS_ALLOW_USE_UNSECURE_NODE_VERSION: 'true'
           SUPABASE_URL: ${{ secrets.SUPABASE_URL }}
           SUPABASE_KEY: ${{ secrets.SUPABASE_KEY }}
         run: python run_sync.py
